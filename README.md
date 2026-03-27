@@ -269,14 +269,14 @@ Once running, navigate to `http://localhost:8501` in your browser.
 
 ## Team
 
-Developed as part of **GAV5028E — Dissertation in AI** at the University of Bradford.
+Developed as part of Discipline-Specific AI Project module at the University of Bradford.
 
-| Name | Role |
-|------|------|
-| [Team Member 1] | |
-| [Team Member 2] | |
-| [Team Member 3] | |
-| [Team Member 4] | |
+| Name |
+|------|
+| Chukwuebuka Tshally-Okeke |
+| Avyandra Shahi |
+| Elvis Odinkor |
+| Ryan Kioko |
 
 ---
 

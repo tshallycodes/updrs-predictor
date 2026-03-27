@@ -1,5 +1,5 @@
 # 🧠 UPDRS Predictor — Parkinson's Disease Severity Assessment Tool
-#To DO- add images, update repo structure and check again
+# To DO- add all images, update repo structure and final check
 
 > A machine learning system that analyses finger tapping signals to assess Parkinson's Disease severity using the Unified Parkinson's Disease Rating Scale (UPDRS).
 

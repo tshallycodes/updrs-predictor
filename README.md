@@ -46,7 +46,7 @@ The **finger tapping test (UPDRS item 3.4)** is a standardised motor assessment 
 - **Amplitude** → movement magnitude over time
 - **Pauses** → motor hesitation or freezing
 
-![alt text](IMG)
+![alt text](Images/parkinsonsVShealthy.PNG)
 > *Caption: "Healthy individuals show consistent, high-amplitude tapping while Parkinson's patients exhibit progressive amplitude reduction and irregular inter-tap intervals"*
 
 ---

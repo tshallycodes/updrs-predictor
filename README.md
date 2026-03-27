@@ -1,4 +1,5 @@
 # 🧠 UPDRS Predictor — Parkinson's Disease Severity Assessment Tool
+#To DO- add images, update repo structure and check again
 
 > A machine learning system that analyses finger tapping signals to assess Parkinson's Disease severity using the Unified Parkinson's Disease Rating Scale (UPDRS).
 
@@ -45,7 +46,7 @@ The **finger tapping test (UPDRS item 3.4)** is a standardised motor assessment 
 - **Amplitude** → movement magnitude over time
 - **Pauses** → motor hesitation or freezing
 
-> 📸 *[Image: Diagram comparing healthy vs Parkinson's finger tapping signal patterns]*
+![alt text](IMG)
 > *Caption: "Healthy individuals show consistent, high-amplitude tapping while Parkinson's patients exhibit progressive amplitude reduction and irregular inter-tap intervals"*
 
 ---

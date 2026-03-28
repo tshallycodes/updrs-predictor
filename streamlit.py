@@ -4,15 +4,59 @@ import pandas as pd
 import pickle
 import torch
 import torch.nn as nn
+import json
 
-# Import your shared preprocessing functions
 from preprocessing import pad_signal, extract_features_from_signal
 
 # ─────────────────────────────────────────────────────────────
 # PAGE CONFIG
 # ─────────────────────────────────────────────────────────────
 st.set_page_config(page_title="UPDRS Predictor", page_icon="🧠", layout="centered")
+
+st.markdown("""
+    <style>
+        [data-testid="stMetricValue"] {
+            font-size: 1rem;
+            white-space: normal;
+            word-break: break-word;
+        }
+
+        /* Hand button styling */
+        div[data-testid="column"] button {
+            width: 100%;
+            padding: 0.75rem;
+            font-size: 1rem;
+            font-weight: 600;
+            border-radius: 8px;
+            border: 2px solid transparent;
+            transition: all 0.2s ease;
+        }
+
+        /* Glowing selected state */
+        div[data-testid="column"] button[kind="primary"] {
+            border-color: #7C3AED;
+            box-shadow: 0 0 12px rgba(124, 58, 237, 0.6);
+            background-color: #7C3AED;
+            color: white;
+        }
+    </style>
+""", unsafe_allow_html=True)
+
 st.title("🧠 UPDRS Severity Predictor")
+st.markdown("---")
+st.markdown("### 📚 Supporting Research")
+
+st.markdown("""
+- [**Hand Resting Tremor — SVC, RF, and Bilateral Assessment**  
+  Iosa et al. (2020) — Frontiers in Bioengineering and Biotechnology](https://pmc.ncbi.nlm.nih.gov/articles/PMC7381229/)
+
+- [**Automatic Classification of the Severity Level of Parkinson's Disease**  
+  Kodali et al. (2023) — Computer Speech and Language](https://www.sciencedirect.com/science/article/pii/S0885230823000670)
+
+- [**UPDRS-Based Multiclass Classification with Small Datasets**  
+  Benmalek et al. (2018) — International Journal of Speech Technology](https://dl.acm.org/doi/10.1007/s10772-017-9401-9)
+""")
+st.markdown("---")
 st.caption("Predicts Parkinson's severity (Mild / Moderate / Severe) from finger tapping signals")
 
 # ─────────────────────────────────────────────────────────────
@@ -21,17 +65,17 @@ st.caption("Predicts Parkinson's severity (Mild / Moderate / Severe) from finger
 CLASS_LABELS = {0: "🟢 Mild (UPDRS 0–1)", 1: "🟡 Moderate (UPDRS 2–3)", 2: "🔴 Severe (UPDRS 4)"}
 
 # ─────────────────────────────────────────────────────────────
-# CNN ARCHITECTURE — must match training definition exactly
+# UPDATED CNN ARCHITECTURE — matches Optuna trained model
 # ─────────────────────────────────────────────────────────────
 class UPDRSModel(nn.Module):
-    def __init__(self, input_dim, num_classes=3):
+    def __init__(self, input_dim, hidden_dim1, hidden_dim2, num_classes=3):
         super().__init__()
         self.net = nn.Sequential(
-            nn.Linear(input_dim, 32),
+            nn.Linear(input_dim, hidden_dim1),
             nn.ReLU(),
-            nn.Linear(32, 16),
+            nn.Linear(hidden_dim1, hidden_dim2),
             nn.ReLU(),
-            nn.Linear(16, num_classes)
+            nn.Linear(hidden_dim2, num_classes)
         )
 
     def forward(self, x):
@@ -56,32 +100,64 @@ def load_sklearn_models():
     return models
 
 @st.cache_resource
-def load_cnn_models(input_dim):
+def load_cnn_models():                          # ← remove input_dim parameter
     cnn = {}
-    for side, path in [("Left", "saved_models/cnn_left.pth"), ("Right", "saved_models/cnn_right.pth")]:
-        model = UPDRSModel(input_dim=input_dim, num_classes=3)
-        model.load_state_dict(torch.load(path, map_location=torch.device("cpu")))
+    for side in ["Left", "Right"]:
+        with open(f"saved_models/cnn_{side.lower()}_params.json") as f:
+            params = json.load(f)
+
+        input_dim = len(params['features'])     # ← derive from saved feature list
+
+        model = UPDRSModel(
+            input_dim=input_dim,
+            hidden_dim1=params['hidden_dim1'],
+            hidden_dim2=params['hidden_dim2']
+        )
+        model.load_state_dict(torch.load(
+            f"saved_models/cnn_{side.lower()}.pth",
+            map_location=torch.device("cpu")
+        ))
         model.eval()
-        cnn[side] = model
+        cnn[side] = {"model": model, "features": params['features']}
     return cnn
 
 # ─────────────────────────────────────────────────────────────
-# SIDEBAR — signal inputs only, no UPDRS input
+# HAND SELECTION — two glowing buttons side by side
 # ─────────────────────────────────────────────────────────────
-st.sidebar.header("⚙️ Configuration")
+st.markdown("### ✋ Select Hand")
 
-hand = st.sidebar.selectbox("Hand", ["Left", "Right"])
+if "hand" not in st.session_state:
+    st.session_state.hand = "Left"
 
-model_choice = st.sidebar.selectbox(
-    "Model",
-    ["Random Forest", "SVC", "SVR", "CNN"]
-)
+col_left, col_right = st.columns(2)
 
-st.sidebar.markdown("---")
-st.sidebar.markdown("**Signal Data**")
+with col_left:
+    if st.button(
+        "Left Hand",
+        type="primary" if st.session_state.hand == "Left" else "secondary",
+        use_container_width=True
+    ):
+        st.session_state.hand = "Left"
 
-amplitude_input = st.sidebar.text_area("Amplitude values (comma separated)", height=120)
-time_input      = st.sidebar.text_area("Time values (comma separated)",      height=120)
+with col_right:
+    if st.button(
+        "Right Hand",
+        type="primary" if st.session_state.hand == "Right" else "secondary",
+        use_container_width=True
+    ):
+        st.session_state.hand = "Right"
+
+hand = st.session_state.hand
+st.markdown(f"Selected: **{hand} Hand**")
+
+# ─────────────────────────────────────────────────────────────
+# SIGNAL INPUTS — on page, no sidebar
+# ─────────────────────────────────────────────────────────────
+st.markdown("---")
+st.markdown("### 📈 Signal Data")
+
+amplitude_input = st.text_area("Amplitude values (comma separated)", height=120)
+time_input      = st.text_area("Time values (comma separated)",      height=120)
 
 # ─────────────────────────────────────────────────────────────
 # HELPERS
@@ -91,11 +167,17 @@ def parse_signal(text):
 
 def predict_sklearn(model, feature_vector):
     if hasattr(model, "predict_proba"):
-        probs = model.predict_proba(feature_vector)[0]
-        pred  = int(np.argmax(probs))
+        raw_probs = model.predict_proba(feature_vector)[0]
+        classes   = model.classes_                          # e.g. [0, 1] or [0, 1, 2]
+
+        # Pad to always have 3 class probabilities
+        probs = np.zeros(3)
+        for i, cls in enumerate(classes):
+            probs[cls] = raw_probs[i]
+
+        pred = int(np.argmax(probs))
         return pred, probs
     else:
-        # SVR — round continuous output to nearest class
         raw  = model.predict(feature_vector)[0]
         pred = int(np.clip(round(raw), 0, 2))
         return pred, None
@@ -108,8 +190,16 @@ def predict_cnn(model, feature_vector):
         pred   = int(np.argmax(probs))
     return pred, probs
 
+@st.cache_resource
+def load_sklearn_features():
+    features = {}
+    for side in ["Left", "Right"]:
+        with open(f"saved_models/sklearn_features_{side.lower()}.json") as f:
+            features[side] = json.load(f)
+    return features
+
 # ─────────────────────────────────────────────────────────────
-# MAIN — prediction on button click
+# PREDICT — all models at once
 # ─────────────────────────────────────────────────────────────
 if st.button("🔍 Predict", use_container_width=True):
 
@@ -127,45 +217,35 @@ if st.button("🔍 Predict", use_container_width=True):
             st.error("Not enough valid taps detected. Please check your signal.")
 
         else:
-            # Features come purely from the signal — no UPDRS input
             feature_vector = pd.DataFrame([features])
+            sklearn_models   = load_sklearn_models()
+            sklearn_features = load_sklearn_features()
+            cnn_models       = load_cnn_models()
 
-            # Load models
-            sklearn_models = load_sklearn_models()
-            cnn_models     = load_cnn_models(feature_vector.shape[1])
+            # ── Filter features per model type ────────────────────────
+            feature_vector_sklearn = feature_vector[sklearn_features[hand]]
+            feature_vector_cnn     = feature_vector[cnn_models[hand]["features"]]
 
-            # Run prediction
-            if model_choice == "CNN":
-                pred, probs = predict_cnn(cnn_models[hand], feature_vector)
-            else:
-                pred, probs = predict_sklearn(sklearn_models[model_choice][hand], feature_vector)
+            # ── Run all models ─────────────────────────────────────────
+            results = {
+                "Random Forest": predict_sklearn(sklearn_models["Random Forest"][hand], feature_vector_sklearn),
+                "SVC":           predict_sklearn(sklearn_models["SVC"][hand],           feature_vector_sklearn),
+                "SVR":           predict_sklearn(sklearn_models["SVR"][hand],           feature_vector_sklearn),
+                "CNN":           predict_cnn(cnn_models[hand]["model"],                 feature_vector_cnn),
+            }
 
-            # ── Results ───────────────────────────────────────
+            # ── Display results ────────────────────────────
             st.markdown("---")
-            st.subheader("📊 Prediction Result")
+            st.subheader(f"📊 Predictions — {hand} Hand")
 
-            st.markdown("""
-                <style>
-                    [data-testid="stMetricValue"] {
-                        font-size: 1rem;
-                        white-space: normal;
-                        word-break: break-word;
-                    }
-                </style>
-            """, unsafe_allow_html=True)
-
-            col1, col2 = st.columns(2)
-            col1.metric("Predicted Severity", CLASS_LABELS[pred])
-            col2.metric("Model Used", f"{model_choice} ({hand} Hand)")
-
-            if probs is not None:
-                st.markdown("**Class Probabilities:**")
-                prob_df = pd.DataFrame({
-                    "Class":       list(CLASS_LABELS.values()),
-                    "Probability": [f"{p:.3f}" for p in probs]
-                })
-                st.dataframe(prob_df, use_container_width=True, hide_index=True)
-                st.progress(float(probs[pred]), text=f"Confidence: {probs[pred]:.1%}")
-
-            else:
-                st.info("SVR does not output class probabilities — prediction is based on rounded continuous output.")
+            for model_name, (pred, probs) in results.items():
+                with st.expander(f"**{model_name}** → {CLASS_LABELS[pred]}", expanded=True):
+                    if probs is not None:
+                        prob_df = pd.DataFrame({
+                            "Class":       list(CLASS_LABELS.values()),
+                            "Probability": [f"{p:.3f}" for p in probs]
+                        })
+                        st.dataframe(prob_df, use_container_width=True, hide_index=True)
+                        st.progress(float(probs[pred]), text=f"Confidence: {probs[pred]:.1%}")
+                    else:
+                        st.info("SVR does not output class probabilities.")

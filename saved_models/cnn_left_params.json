@@ -1,0 +1,1 @@
+{"lr": 0.002400078707457653, "weight_decay": 0.0012240450520874804, "batch_size": 16, "hidden_dim1": 64, "hidden_dim2": 64, "n_epochs": 300, "features": ["num_taps", "mean_peak_amp", "amp_decrement", "mean_iti", "num_long_pauses"]}

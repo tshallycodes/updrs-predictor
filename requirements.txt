@@ -10,3 +10,6 @@ torch
 torchaudio
 torchvision
 streamlit>=1.35.0
+opencv-python
+av
+pickle

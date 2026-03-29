@@ -9,6 +9,7 @@ import cv2
 import av
 import time
 
+from scipy.interpolate import interp1d
 from streamlit_webrtc import webrtc_streamer, VideoProcessorBase, RTCConfiguration
 
 import mediapipe as mp
@@ -69,6 +70,7 @@ st.caption("Predicts Parkinson's severity (Mild / Moderate / Severe) from finger
 # ─────────────────────────────────────────────────────────────
 CLASS_LABELS          = {0: "🟢 Mild (UPDRS 0–1)", 1: "🟡 Moderate (UPDRS 2–3)", 2: "🔴 Severe (UPDRS 4)"}
 MIN_RECORDING_SECONDS = 30
+TARGET_HZ             = 60   # must match training data sample rate
 
 # ─────────────────────────────────────────────────────────────
 # CNN ARCHITECTURE
@@ -162,9 +164,29 @@ hand = st.session_state.hand
 st.markdown(f"Selected: **{hand} Hand**")
 
 # ─────────────────────────────────────────────────────────────
+# INTERPOLATION HELPER
+# Resamples sparse webcam signal (~10Hz) to training rate (60Hz)
+# ─────────────────────────────────────────────────────────────
+def interpolate_to_target_hz(amps, times, target_hz=TARGET_HZ):
+    times_arr = np.array(times)
+    amps_arr  = np.array(amps)
+
+    duration      = times_arr[-1] - times_arr[0]
+    n_target      = int(duration * target_hz)
+    times_uniform = np.linspace(times_arr[0], times_arr[-1], n_target)
+
+    # Cubic interpolation — smoother than linear for signal data
+    interpolator  = interp1d(times_arr, amps_arr, kind='cubic', fill_value='extrapolate')
+    amps_uniform  = interpolator(times_uniform)
+
+    return amps_uniform.tolist(), times_uniform.tolist()
+
+# ─────────────────────────────────────────────────────────────
 # VIDEO PROCESSOR
-# Reads/writes ss.store directly — no instance variables needed
-# so data survives processor being recreated on each rerun
+# Fix 1: Recording starts automatically when stream connects —
+#         no separate Start Recording button needed.
+# Fix 2: Samples written to ss.store (module singleton) so they
+#         survive Streamlit reruns and button clicks.
 # ─────────────────────────────────────────────────────────────
 class FingerTapProcessor(VideoProcessorBase):
     def __init__(self):
@@ -176,6 +198,12 @@ class FingerTapProcessor(VideoProcessorBase):
                 min_tracking_confidence=0.7,
             )
         )
+        # Auto-start recording as soon as stream connects
+        with ss.lock:
+            ss.store["recording"]  = True
+            ss.store["amplitudes"] = []
+            ss.store["timestamps"] = []
+            ss.store["start_time"] = None
 
     def recv(self, frame):
         img     = frame.to_ndarray(format="bgr24")
@@ -185,7 +213,10 @@ class FingerTapProcessor(VideoProcessorBase):
         mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=img_rgb)
         results  = self.detector.detect(mp_image)
 
+        hand_detected = False
+
         if results.hand_landmarks:
+            hand_detected = True
             for hand_lms in results.hand_landmarks:
 
                 # Draw all 21 landmarks
@@ -224,14 +255,22 @@ class FingerTapProcessor(VideoProcessorBase):
                         ss.store["amplitudes"].append(amplitude)
                         ss.store["timestamps"].append(round(elapsed, 4))
 
+        # Warn user if hand not detected
+        if not hand_detected:
+            cv2.putText(img, "No hand detected", (10, 30),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 255), 2)
+
         # REC indicator
         with ss.lock:
             is_recording = ss.store["recording"]
+            n_samples    = len(ss.store["amplitudes"])
 
         if is_recording:
             cv2.circle(img, (w - 30, 30), 12, (0, 0, 255), -1)
             cv2.putText(img, "REC", (w - 70, 35),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
+            cv2.putText(img, f"Samples: {n_samples}", (10, h - 15),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
 
         return av.VideoFrame.from_ndarray(img, format="bgr24")
 
@@ -243,8 +282,9 @@ st.markdown("### 🎥 Live Video Capture")
 
 st.info(
     "⏱ **Minimum recording duration: 30 seconds.** "
+    "Recording starts automatically when the stream connects. "
     "Tap your index finger and thumb together repeatedly at a steady pace. "
-    "Click **💾 Save Signal** BEFORE stopping the stream — stopping the stream clears live data."
+    "Click **💾 Save Signal** BEFORE stopping the stream."
 )
 
 RTC_CONFIG = RTCConfiguration({"iceServers": [{"urls": ["stun:stun.l.google.com:19302"]}]})
@@ -257,12 +297,8 @@ ctx = webrtc_streamer(
 )
 
 if ctx.video_processor:
-    col_rec, col_save, col_reset = st.columns(3)
 
-    with col_rec:
-        if st.button("🔴 Start Recording", use_container_width=True):
-            with ss.lock:
-                ss.store["recording"] = True
+    col_save, col_reset = st.columns(2)
 
     with col_save:
         if st.button("💾 Save Signal", use_container_width=True):
@@ -271,14 +307,18 @@ if ctx.video_processor:
                 times = list(ss.store["timestamps"])
                 ss.store["recording"] = False
 
-            if len(amps) == 0:
-                st.warning("No signal recorded yet — press Start Recording first.")
+            if len(amps) < 2:
+                st.warning("Not enough samples yet — keep tapping.")
             else:
-                st.session_state["raw_amps"]  = amps
-                st.session_state["raw_times"] = times
+                # ── Fix 2: Interpolate sparse webcam signal to 60Hz ──
+                amps_interp, times_interp = interpolate_to_target_hz(amps, times)
+
+                st.session_state["raw_amps"]  = amps_interp
+                st.session_state["raw_times"] = times_interp
                 st.success(
-                    f"✅ Saved {len(amps)} samples ({times[-1]:.1f}s). "
-                    "You can now stop the stream and trim below."
+                    f"✅ Saved {len(amps)} raw samples → "
+                    f"interpolated to {len(amps_interp)} samples at {TARGET_HZ}Hz "
+                    f"({times[-1]:.1f}s). You can now stop the stream."
                 )
 
     with col_reset:
@@ -286,17 +326,18 @@ if ctx.video_processor:
             with ss.lock:
                 ss.store["amplitudes"] = []
                 ss.store["timestamps"] = []
-                ss.store["recording"]  = False
+                ss.store["recording"]  = True   # keep recording after reset
                 ss.store["start_time"] = None
             st.session_state.pop("raw_amps",          None)
             st.session_state.pop("raw_times",         None)
             st.session_state.pop("amplitude_input",   None)
             st.session_state.pop("time_input",        None)
-            st.success("Signal cleared.")
+            st.success("Signal cleared — recording restarted.")
 
-    # Live duration display
+    # Live duration + sample count display
     with ss.lock:
         times_so_far = list(ss.store["timestamps"])
+        n_so_far     = len(ss.store["amplitudes"])
 
     if times_so_far:
         duration = times_so_far[-1]
@@ -305,15 +346,17 @@ if ctx.video_processor:
             f"**Recorded so far:** :{colour}[{duration:.1f}s]"
             + (" ✅" if duration >= MIN_RECORDING_SECONDS else f" — need {MIN_RECORDING_SECONDS - duration:.1f}s more")
         )
+        est_interp = int(duration * TARGET_HZ)
+        st.caption(f"Raw samples: {n_so_far} → will interpolate to ~{est_interp} at {TARGET_HZ}Hz")
 
 # ─────────────────────────────────────────────────────────────
-# TRIM + LOAD — reads from session_state, works after stream off
+# TRIM + LOAD
 # ─────────────────────────────────────────────────────────────
 if "raw_amps" in st.session_state and "raw_times" in st.session_state:
     amps  = st.session_state["raw_amps"]
     times = st.session_state["raw_times"]
 
-    st.markdown(f"**Saved signal:** {len(amps)} samples — {times[-1]:.1f}s")
+    st.markdown(f"**Saved signal:** {len(amps)} samples — {times[-1]:.1f}s at {TARGET_HZ}Hz")
     st.markdown("#### ✂️ Trim Signal")
     st.caption("Drag to remove unwanted sections at the start or end.")
 
@@ -335,14 +378,13 @@ if "raw_amps" in st.session_state and "raw_times" in st.session_state:
     if trimmed_dur < MIN_RECORDING_SECONDS:
         st.warning(f"⚠️ Trimmed signal is {trimmed_dur:.1f}s — minimum is {MIN_RECORDING_SECONDS}s.")
     else:
-        st.success(f"✅ Trimmed signal: {trimmed_dur:.1f}s — ready to load.")
-
-    st.markdown(f"**Samples after trim:** {len(trimmed_amps)}")
+        st.success(f"✅ Trimmed signal: {trimmed_dur:.1f}s ({len(trimmed_amps)} samples) — ready to load.")
 
     if st.button("📥 Load Signal into Fields", use_container_width=True):
         if trimmed_dur < MIN_RECORDING_SECONDS:
             st.error(f"Cannot load — signal is {trimmed_dur:.1f}s, minimum is {MIN_RECORDING_SECONDS}s.")
         else:
+            # Normalise amplitude to 0–1 range
             a_min, a_max = trimmed_amps.min(), trimmed_amps.max()
             amps_norm    = (trimmed_amps - a_min) / (a_max - a_min + 1e-8)
             times_norm   = trimmed_times - trimmed_times[0]

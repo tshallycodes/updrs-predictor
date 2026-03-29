@@ -10,6 +10,9 @@ torch
 torchaudio
 torchvision
 streamlit>=1.35.0
-opencv-python
+opencv-python-headless
 av
 pickle
+streamlit-webrtc
+mediapipe
+optuna

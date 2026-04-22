@@ -206,27 +206,20 @@ Evaluated on held-out test set (20% split):
 
 | Model | Accuracy | Weighted F1 |
 |-------|----------|-------------|
-| SVC | 0.71 | 0.68 |
-| SVR | 0.71 | 0.67 |
-| Random Forest | 0.68 | 0.65 |
-| PyTorch MLP | 0.57 | 0.53 |
+| SVC | 0.8386 | 0.8884 |
+| SVR | 0.9242 | nan |
+| Random Forest | 0.9394 | 0.9105 |
+| PyTorch MLP | 0.9286 | 0.8942 |
 
 #### Right Hand
 
 | Model | Accuracy | Weighted F1 |
 |-------|----------|-------------|
-| SVC | 0.69 | 0.66 |
-| SVR | 0.68 | 0.65 |
-| Random Forest | 0.71 | 0.68 |
-| PyTorch MLP | 0.55 | 0.51 |
+| SVC | 0.9242 | 0.8878 |
+| SVR | 0.9242 | nan |
+| Random Forest | 0.9242 | 0.8878 |
+| PyTorch MLP | 0.9286 | 0.8942 |
 
-#### Per-class Performance (Best Model — SVC Left Hand)
-
-| Class | Precision | Recall | F1 |
-|-------|-----------|--------|----|
-| Mild (0–1) | 0.74 | 0.79 | 0.76 |
-| Moderate (2–3) | 0.68 | 0.63 | 0.65 |
-| Severe (4) | 0.00 | 0.00 | 0.00 |
 
 **Key findings:**
 
